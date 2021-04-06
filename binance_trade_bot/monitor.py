@@ -93,17 +93,19 @@ def main():
             "height": 1e8,
             "bar_width": 0.0000003
         },
-        "BTTUSDT": {
-            "height": 2e7,
-            "bar_width": 0.000001
-        }
+        # "BTTUSDT": {
+        #     "height": 2e7,
+        #     "bar_width": 0.000001
+        # }
     }
 
     symbols_data = {symbol: SymbolData() for symbol in coins}
 
 
     index = 0
-    fig, axes = plt.subplots(2)
+    fig, axes = plt.subplots(len(coins))
+    if not isinstance(axes, list):
+        axes = [axes]
 
     while True:
         # plot_trends(manager, axs)
@@ -113,7 +115,7 @@ def main():
             if index % 5 == 0:
                 orders = manager.binance_client.get_all_orders(symbol=symbol)
                 if orders[-1]['side'] == "BUY":
-                    if symbol_data.last_buy is None or symbol_data.last_buy['orderId'] != orders[-1]['orderId']:
+                    if symbol_data.last_buy is not None and symbol_data.last_buy['orderId'] != orders[-1]['orderId']:
                         notify("you have a new buy order")
                     symbol_data.last_buy = orders[-1]
                     symbol_data.last_buy_price = float(symbol_data.last_buy['origQuoteOrderQty'])
@@ -133,12 +135,15 @@ def main():
 
             # print price changes from last buy
             if symbol_data.last_buy:
-                sell_price = float(order_book['bids'][0][0]) * float(symbol_data.last_buy['origQty'])
+                sell_value = float(order_book['bids'][0][0])
+                sell_price = sell_value * float(symbol_data.last_buy['origQty'])
                 fee = sell_price * 0.001
                 sell_price -= fee
                 change_dollar = (sell_price - symbol_data.last_buy_price)
                 change_percentage = 100*change_dollar/symbol_data.last_buy_price
-                print(f'buy: {round(symbol_data.last_buy_price, 2)} sell: {round(sell_price, 2)} change: {round(change_percentage, 2)}%  {round(change_dollar, 2)}$')
+                last_buy_value = symbol_data.last_buy_price/float(symbol_data.last_buy['origQty'])
+                print(f'buy: {round(symbol_data.last_buy_price, 2)} sell: {round(sell_price, 2)} change: {round(change_percentage, 2)}% '
+                      f' {round(change_dollar, 2)}$ (buy value: {round(last_buy_value, 6)} sell value: {round(sell_value, 6)})')
 
         #
         if index < 1:
@@ -148,7 +153,7 @@ def main():
                 fig.canvas.draw_idle()
             fig.canvas.start_event_loop(1)
 
-        for i in range(2):
+        for i in range(len(coins)):
             axes[i].clear()
 
         index += 1
