@@ -66,8 +66,8 @@ def draw_coin(manager, symbol, axis, height=1e8, bar_width=0.0000003):
     order_book = manager.binance_client.get_order_book(symbol=symbol)
     bids_x, bids_y = np.array(order_book['bids']).astype(float).T
     asks_x, asks_y = np.array(order_book['asks']).astype(float).T
-    axis.bar(bids_x, bids_y, bar_width, color='r')
-    axis.bar(asks_x, asks_y, bar_width, color='g')
+    axis.bar(bids_x, np.multiply(bids_y, bids_x), bar_width, color='r')
+    axis.bar(asks_x, np.multiply(asks_y, bids_x), bar_width, color='g')
     axis.set_title(symbol)
     axis.set_ylim([0, height])
     return order_book
@@ -90,11 +90,11 @@ def main():
 
     coins = {
         "WINUSDT": {
-            "height": 1e8,
+            "height": 5e5, #2e8,
             "bar_width": 0.0000003
         },
         "BTTUSDT": {
-            "height": 2e7,
+            "height": 5e5, #2e7,
             "bar_width": 0.000001
         }
     }
@@ -123,19 +123,21 @@ def main():
             order_book = draw_coin(manager, symbol, axes[i], coins[symbol]["height"], coins[symbol]["bar_width"])
         
             # notify me on barriers
-            last_ask = order_book['asks'][0][0]
-            if float(order_book['asks'][0][1]) > coins[symbol]["height"] / 5 and symbol_data.last_notify != last_ask:
+            last_ask = float(order_book['asks'][0][0])
+            last_ask_volume = float(order_book['asks'][0][1])
+            if (last_ask_volume * last_ask) > coins[symbol]["height"] / 5 and symbol_data.last_notify != last_ask:
                 notify(f"{symbol} - ASK BARRIER! {last_ask}")
                 symbol_data.last_notify = last_ask
 
-            last_bid = order_book['bids'][0][0]
-            if float(order_book['bids'][0][1]) > coins[symbol]["height"] / 5 and symbol_data.last_notify != last_bid:
+            last_bid = float(order_book['bids'][0][0])
+            last_bid_volume = float(order_book['bids'][0][1])
+            if (last_bid_volume * last_bid) > coins[symbol]["height"] / 5 and symbol_data.last_notify != last_bid:
                 notify(f"{symbol} - BID BARRIER! {last_bid}")
                 symbol_data.last_notify = last_bid
 
             # print price changes from last buy
             if symbol_data.last_buy:
-                sell_value = float(order_book['bids'][0][0])
+                sell_value = last_bid
                 sell_price = sell_value * float(symbol_data.last_buy['origQty'])
                 fee = sell_price * 0.001
                 sell_price -= fee
