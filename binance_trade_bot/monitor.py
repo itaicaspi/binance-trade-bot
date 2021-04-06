@@ -66,10 +66,14 @@ def draw_coin(manager, symbol, axis, height=1e8, bar_width=0.0000003):
     order_book = manager.binance_client.get_order_book(symbol=symbol)
     bids_x, bids_y = np.array(order_book['bids']).astype(float).T
     asks_x, asks_y = np.array(order_book['asks']).astype(float).T
-    axis.bar(bids_x, np.multiply(bids_y, bids_x), bar_width, color='r')
-    axis.bar(asks_x, np.multiply(asks_y, bids_x), bar_width, color='g')
+    bids_y = np.multiply(bids_y, bids_x)
+    asks_y = np.multiply(asks_y, asks_x)
+    axis.bar(bids_x, bids_y, bar_width, color='r')
+    axis.bar(asks_x, asks_y, bar_width, color='g')
+    max_y = np.max([bids_y.max(), asks_y.max(), height])
     axis.set_title(symbol)
-    axis.set_ylim([0, height])
+    axis.set_ylim([0, max_y])
+    # axis.set_yscale("log")
     return order_book
 
 
@@ -90,11 +94,11 @@ def main():
 
     coins = {
         "WINUSDT": {
-            "height": 5e5, #2e8,
+            "height": 1e6, #2e8,
             "bar_width": 0.0000003
         },
         "BTTUSDT": {
-            "height": 5e5, #2e7,
+            "height": 1e6, #2e7,
             "bar_width": 0.000001
         }
     }
@@ -153,7 +157,7 @@ def main():
         else:
             if fig.canvas.figure.stale:
                 fig.canvas.draw_idle()
-            fig.canvas.start_event_loop(1)
+            fig.canvas.start_event_loop(0.5)
 
         for i in range(len(coins)):
             axes[i].clear()
