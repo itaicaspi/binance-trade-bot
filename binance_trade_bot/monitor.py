@@ -4,7 +4,6 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
-import plyer
 
 from binance_trade_bot.binance_api_manager import BinanceAPIManager
 from binance_trade_bot.config import Config
@@ -62,17 +61,38 @@ def notify(text):
     os.system("osascript -e 'display notification \"{}\"\'".format(text))
 
 
-def draw_coin(manager, symbol, axis, height=1e8, bar_width=0.0000003):
-    order_book = manager.binance_client.get_order_book(symbol=symbol)
+def draw_coin(manager, symbol, axis, height=1e8, x_range=0.00003, bar_width=0.0000003):
+    order_book = manager.binance_client.get_order_book(symbol=symbol, limit=100)
     bids_x, bids_y = np.array(order_book['bids']).astype(float).T
     asks_x, asks_y = np.array(order_book['asks']).astype(float).T
+
+    # find all the bids and asks that have a round coin value so it probably isn't a bunch of
+    # people bidding on the same price
+    private_bids = (bids_y / 10000).astype(int) * 10000 == bids_y
+    private_asks = (asks_y / 10000).astype(int) * 10000 == asks_y
+
+    # convert to $
     bids_y = np.multiply(bids_y, bids_x)
     asks_y = np.multiply(asks_y, asks_x)
+
+    # find all the bids and asks that have a round accumulated price in $ so it probably isn't a bunch of
+    # people bidding on the same price
+    decimals = np.modf(bids_y/10**np.floor(np.log10(bids_y)))[0]
+    private_bids = np.bitwise_or(np.bitwise_or(private_bids, (1 - decimals) < 0.01), decimals < 0.01)
+    decimals = np.modf(asks_y/10**np.floor(np.log10(asks_y)))[0]
+    private_asks = np.bitwise_or(np.bitwise_or(private_asks, (1 - decimals) < 0.01), decimals < 0.01)
+
     axis.bar(bids_x, bids_y, bar_width, color='r')
     axis.bar(asks_x, asks_y, bar_width, color='g')
+    axis.bar(bids_x, bids_y*private_bids, bar_width, color='y')
+    axis.bar(asks_x, asks_y*private_asks, bar_width, color='y')
     max_y = np.max([bids_y.max(), asks_y.max(), height])
     axis.set_title(symbol)
     axis.set_ylim([0, max_y])
+    x_center = (bids_x[0] + asks_x[0]) / 2
+    x_range = x_range# max(bids_x[-1] - bids_x[0], asks_x[-1] - asks_x[0])
+    # axis.set_xlim([x_center - x_range, x_center + x_range])
+    # print(x_range*2)
     # axis.set_yscale("log")
     return order_book
 
@@ -80,27 +100,31 @@ def draw_coin(manager, symbol, axis, height=1e8, bar_width=0.0000003):
 class SymbolData:
     def __init__(self):
         self.last_buy = None
+        self.last_sell = None
         self.last_buy_price = None
+        self.last_sell_price = None
         self.last_notify = None
+        self.last_gain_print = None
 
 
 def main():
     logger = Logger()
     logger.info("Starting")
-    print(plyer.utils.platform)
     config = Config()
     db = Database(logger, config)
     manager = BinanceAPIManager(config, db, logger)
 
     coins = {
         "WINUSDT": {
-            "height": 1e6, #2e8,
-            "bar_width": 0.0000003
+            "height": 3e5, #2e8,
+            "bar_width": 0.0000003,
+            "x_range": 0.00003
         },
-        "BTTUSDT": {
-            "height": 1e6, #2e7,
-            "bar_width": 0.000001
-        }
+        # "BTTUSDT": {
+        #     "height": 3e5, #2e7,
+        #     "bar_width": 0.000001,
+        #     "x_range": 0.0001
+        # }
     }
 
     symbols_data = {symbol: SymbolData() for symbol in coins}
@@ -120,20 +144,32 @@ def main():
                 orders = manager.binance_client.get_all_orders(symbol=symbol)
                 if orders[-1]['side'] == "BUY":
                     if symbol_data.last_buy is not None and symbol_data.last_buy['orderId'] != orders[-1]['orderId']:
-                        notify("you have a new buy order")
+                        notify("you made a new BUY order")
                     symbol_data.last_buy = orders[-1]
                     symbol_data.last_buy_price = float(symbol_data.last_buy['origQuoteOrderQty'])
+                    symbol_data.last_sell = None
+                elif orders[-1]['side'] == "SELL":
+                    symbol_data.last_sell = orders[-1]
+                    symbol_data.last_sell_price = float(symbol_data.last_sell['cummulativeQuoteQty'])
+                    if symbol_data.last_sell != symbol_data.last_gain_print:
+                        notify("you made a new SELL order")
+                        symbol_data.last_gain_print = symbol_data.last_sell
+                        print(f"{symbol} - last gain: {round(float(symbol_data.last_sell_price - float(orders[-2]['origQuoteOrderQty'])), 2)}$")
 
-            order_book = draw_coin(manager, symbol, axes[i], coins[symbol]["height"], coins[symbol]["bar_width"])
+            order_book = draw_coin(manager, symbol, axes[i], coins[symbol]["height"], coins[symbol]['x_range'], coins[symbol]["bar_width"])
         
             # notify me on barriers
             last_ask = float(order_book['asks'][0][0])
+            axes[i].axvline(last_ask, ymax=coins[symbol]["height"], color='g', dashes=[1, 2])
+            axes[i].axvline(float(order_book['asks'][-1][0]), ymax=coins[symbol]["height"], color='k', dashes=[1, 2])
             last_ask_volume = float(order_book['asks'][0][1])
             if (last_ask_volume * last_ask) > coins[symbol]["height"] / 5 and symbol_data.last_notify != last_ask:
                 notify(f"{symbol} - ASK BARRIER! {last_ask}")
                 symbol_data.last_notify = last_ask
 
             last_bid = float(order_book['bids'][0][0])
+            axes[i].axvline(last_bid, ymax=coins[symbol]["height"], color='r', dashes=[1, 2])
+            axes[i].axvline(float(order_book['bids'][-1][0]), ymax=coins[symbol]["height"], color='k', dashes=[1, 2])
             last_bid_volume = float(order_book['bids'][0][1])
             if (last_bid_volume * last_bid) > coins[symbol]["height"] / 5 and symbol_data.last_notify != last_bid:
                 notify(f"{symbol} - BID BARRIER! {last_bid}")
@@ -157,7 +193,7 @@ def main():
         else:
             if fig.canvas.figure.stale:
                 fig.canvas.draw_idle()
-            fig.canvas.start_event_loop(0.5)
+            fig.canvas.start_event_loop(1)
 
         for i in range(len(coins)):
             axes[i].clear()
