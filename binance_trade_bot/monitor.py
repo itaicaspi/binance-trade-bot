@@ -93,10 +93,10 @@ def main():
             "height": 1e8,
             "bar_width": 0.0000003
         },
-        # "BTTUSDT": {
-        #     "height": 2e7,
-        #     "bar_width": 0.000001
-        # }
+        "BTTUSDT": {
+            "height": 2e7,
+            "bar_width": 0.000001
+        }
     }
 
     symbols_data = {symbol: SymbolData() for symbol in coins}
@@ -104,7 +104,7 @@ def main():
 
     index = 0
     fig, axes = plt.subplots(len(coins))
-    if not isinstance(axes, list):
+    if not isinstance(axes, np.ndarray):
         axes = [axes]
 
     while True:
